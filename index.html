@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Патанатомия — Тренажер</title>
+    <style>
+        :root {
+            --primary: #2196F3;
+            --success: #4CAF50;
+            --accent: #FF9800;
+            --bg: #F5F5F5;
+            --card-bg: #FFFFFF;
+            --text: #333333;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1000px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        /* Панель настроек */
+        .settings-panel {
+            background: var(--card-bg);
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .inputs-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        input[type="number"] {
+            width: 60px;
+            padding: 6px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+
+        .btn-apply {
+            background-color: var(--accent);
+            color: white;
+        }
+
+        .btn-apply:hover { background-color: #e68a00; }
+
+        /* Статус бар */
+        .status-bar {
+            text-align: center;
+            font-size: 15px;
+            font-weight: 500;
+            color: #555;
+        }
+
+        /* Контейнер для изображения */
+        .view-port {
+            background: #E0E0E0;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 500px;
+            max-height: 70vh;
+            position: relative;
+        }
+
+        /* Стили для режимов отображения картинки */
+        .quiz-image {
+            max-width: 100%;
+            max-height: 70vh;
+            object-fit: contain;
+            display: block;
+        }
+
+        /* Логика обрезки через CSS object-fit и object-position */
+        .quiz-image.cropped {
+            width: 100%;
+            height: 500px;
+            /* Вырезаем левую половину (0% - 50%) и чуть смещаем сверху, чтобы убрать заголовок */
+            object-fit: cover;
+            object-position: 0% 40%; 
+            transform: scale(1.3); /* Немного увеличим для акцента на микропрепарате */
+        }
+
+        /* Главная кнопка действия */
+        .btn-action {
+            width: 100%;
+            padding: 15px;
+            font-size: 18px;
+            color: white;
+            border-radius: 8px;
+            background-color: var(--primary);
+            box-shadow: 0 4px 6px rgba(33, 150, 243, 0.3);
+        }
+
+        .btn-action.next {
+            background-color: var(--success);
+            box-shadow: 0 4px 6px rgba(76, 175, 80, 0.3);
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="settings-panel">
+        <div class="inputs-group">
+            <label>Диапазон от:</label>
+            <input type="number" id="startNum" value="2">
+            <label>до:</label>
+            <input type="number" id="endNum" value="77">
+        </div>
+        
+        <label class="checkbox-group">
+            <input type="checkbox" id="allowRepeats">
+            <span>Разрешить повторы</span>
+        </label>
+
+        <button class="btn-apply" onclick="applySettings()">Применить и сбросить</button>
+    </div>
+
+    <div class="status-bar" id="statusBar">Загрузка манифеста картинок...</div>
+
+    <div class="view-port">
+        <img id="quizImg" class="quiz-image cropped" src="" alt="Препарат" style="display: none;">
+    </div>
+
+    <button id="btnAction" class="btn-action" onclick="handleAction()">Показать ответ (Пробел)</button>
+</div>
+
+<script>
+    let allImages = [];       // Все картинки из manifest.json
+    let filteredImages = [];  // Картинки, попавшие в диапазон
+    let remainingImages = []; // Оставшиеся для режима "без повторов"
+    
+    let currentImage = "";
+    let isShowingFull = false;
+
+    // Шаблон для поиска цифр в названии файла (ищет цифры перед расширением)
+    function parseFileNumber(filename) {
+        const match = filename.match(/(\d+)\.(?:jpg|jpeg|png|bmp)$/i);
+        return match ? parseInt(match[1], 10) : null;
+    }
+
+    // Загрузка списка картинок при старте
+    fetch('manifest.json')
+        .then(response => {
+            if (!response.ok) throw new Error('Манифест не найден');
+            return response.json();
+        })
+        .then(data => {
+            allImages = data;
+            applySettings();
+        })
+        .catch(err => {
+            document.getElementById('statusBar').innerText = "Ошибка: не найден файл manifest.json. Запустите скрипт генерации!";
+            console.error(err);
+        });
+
+    function applySettings() {
+        const startNum = parseInt(document.getElementById('startNum').value, 10) || 0;
+        const endNum = parseInt(document.getElementById('endNum').value, 10) || 99999;
+
+        // Фильтруем
+        filteredImages = allImages.filter(filename => {
+            const num = parseFileNumber(filename);
+            if (num !== null) {
+                return num >= startNum && num <= endNum;
+            }
+            return false;
+        });
+
+        if (filteredImages.length === 0) {
+            alert("В заданном диапазоне файлы не найдены!");
+            return;
+        }
+
+        remainingImages = [...filteredImages];
+        nextQuestion();
+    }
+
+    function updateStatusBar() {
+        const allowRepeats = document.getElementById('allowRepeats').checked;
+        const statusEl = document.getElementById('statusBar');
+
+        if (allowRepeats) {
+            statusEl.innerText = `Режим бесконечных повторов | Слайдов в пуле: ${filteredImages.length}`;
+        } else {
+            const currentLeft = remainingImages.length + (!isShowingFull && currentImage ? 1 : 0);
+            statusEl.innerText = `Режим без повторов | Осталось: ${currentLeft} из ${filteredImages.length}`;
+        }
+    }
+
+    function nextQuestion() {
+        const allowRepeats = document.getElementById('allowRepeats').checked;
+        const imgEl = document.getElementById('quizImg');
+        const btnEl = document.getElementById('btnAction');
+
+        if (!allowRepeats) {
+            if (remainingImages.length === 0) {
+                alert("Все выбранные слайды пройдены! Начинаем круг заново.");
+                remainingImages = [...filteredImages];
+            }
+            const randIndex = Math.floor(Math.random() * remainingImages.length);
+            currentImage = remainingImages.splice(randIndex, 1)[0];
+        } else {
+            const randIndex = Math.floor(Math.random() * filteredImages.length);
+            currentImage = filteredImages[randIndex];
+        }
+
+        isShowingFull = false;
+        updateStatusBar();
+
+        // Показываем закропленную картинку
+        imgEl.src = currentImage; // Путь к картинке (лежат в той же папке)
+        imgEl.style.display = "block";
+        imgEl.className = "quiz-image cropped";
+        
+        btnEl.innerText = "Показать ответ (Пробел)";
+        btnEl.className = "btn-action";
+    }
+
+    function showAnswer() {
+        const imgEl = document.getElementById('quizImg');
+        const btnEl = document.getElementById('btnAction');
+
+        // Снимаем кроп — показываем полную картинку
+        imgEl.className = "quiz-image";
+        
+        isShowingFull = true;
+        updateStatusBar();
+
+        btnEl.innerText = "Следующая картинка (Пробел)";
+        btnEl.className = "btn-action next";
+    }
+
+    function handleAction() {
+        if (isShowingFull) {
+            nextQuestion();
+        } else {
+            showAnswer();
+        }
+    }
+
+    // Слушатель клавиатуры (Пробел)
+    window.addEventListener('keydown', function(e) {
+        if (e.code === 'Space') {
+            e.preventDefault(); // Чтобы страница не скроллилась вниз при нажатии
+            handleAction();
+        }
+    });
+
+    // Динамическое обновление статус-бара при клике на чекбокс повторений
+    document.getElementById('allowRepeats').addEventListener('change', function() {
+        if (!this.checked) {
+            remainingImages = [...filteredImages];
+            const index = remainingImages.indexOf(currentImage);
+            if (index > -1) remainingImages.splice(index, 1);
+        }
+        updateStatusBar();
+    });
+</script>
+
+</body>
+</html>
